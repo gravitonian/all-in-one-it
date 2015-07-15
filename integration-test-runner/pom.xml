@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>integration-test-runner</artifactId>
+    <name>Alfresco Integration Test Runner</name>
+    <description>Starts an embedded Tomcat 7 server, then executes all integration tests in this project, and then shutdown Tomcat</description>
+
+    <!-- Setup the parent extension project, which contain all the Alfresco Maven SDK stuff -->
+    <parent>
+        <groupId>org.alfresco</groupId>
+        <artifactId>all-in-one-it</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <dependencies>
+        <!-- Bring in the HTTPClient so we can make HTTP calls during integration testing -->
+        <!-- Note. we don't want this in the enable-it profile as then the tests would not compile when doing
+                   your standard $mvn clean install -->
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>httpclient</artifactId>
+            <version>4.3.3</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Bring in the OpenCMIS library for talking to CMIS servers,
+             useful when you want to load test data into the Repository
+             for use in Integration Tests -->
+        <dependency>
+            <groupId>org.apache.chemistry.opencmis</groupId>
+            <artifactId>chemistry-opencmis-client-impl</artifactId>
+            <version>0.13.0</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Used to decode JSON response from Web Script -->
+        <dependency>
+            <groupId>com.googlecode.json-simple</groupId>
+            <artifactId>json-simple</artifactId>
+            <version>1.1.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <profiles>
+        <profile>
+            <id>enable-it</id>
+
+            <properties>
+                <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+            </properties>
+
+            <build>
+                <plugins>
+                    <!-- Runs the integration tests, any class that follows naming convention
+                         "**/IT*.java", "**/*IT.java", and "**/*ITCase.java" will be considered an integration test -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>2.18.1</version>
+                        <executions>
+                            <execution>
+                                <id>integration-test</id>
+                                <phase>integration-test</phase>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                </goals>
+                            </execution>
+                            <execution>
+                                <id>verify-test</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                        <dependencies>
+                            <dependency>
+                                <groupId>org.apache.maven.surefire</groupId>
+                                <artifactId>surefire-junit47</artifactId>
+                                <version>2.18.1</version>
+                            </dependency>
+                        </dependencies>
+                    </plugin>
+
+                    <!-- Copy Alfresco.war web application context file, and substitute properties, so Tomcat can pick it up,
+                         plugin version picked up from alfresco-sdk-parent-2.x.pom pluginManagement definition -->
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>copy-tomcat-resources</id>
+                                <phase>prepare-package</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/contexts</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>../runner/tomcat</directory>
+                                            <filtering>true</filtering>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+
+                    <!-- Run Tomcat 7 embedded with Alfresco.war context,
+                         plugin version picked up from alfresco-sdk-parent.pom pluginManagement definition,
+                         which also brings in the H2 database lib -->
+                    <plugin>
+                        <groupId>org.apache.tomcat.maven</groupId>
+                        <artifactId>tomcat7-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>start-tomcat</id>
+                                <goals>
+                                    <goal>run</goal> <!-- run un-packaged as dynamic webapp -->
+                                </goals>
+                                <phase>pre-integration-test</phase>
+                                <configuration>
+                                    <fork>true</fork>   <!-- Fork so tests can be run in parallel -->
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>stop-tomcat</id>
+                                <goals>
+                                    <goal>shutdown</goal>
+                                </goals>
+                                <phase>post-integration-test</phase>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <ignorePackaging>true</ignorePackaging>
+                            <useSeparateTomcatClassLoader>true</useSeparateTomcatClassLoader>
+                            <path>/</path>
+                            <delegate>false</delegate>
+
+                            <!-- Note. If you have integration tests that require Share or Solr then you would have
+                                       to add those webapps too, see the runner project for info on how to do that. -->
+                            <webapps>
+				                <webapp>
+                                    <groupId>${project.groupId}</groupId>
+                                    <artifactId>repo</artifactId>
+                                    <version>${project.version}</version>
+                                    <type>war</type>
+                                    <!-- Make sure webapp is loaded with context and everything,
+                                         if set to 'false' then you will get 404 when trying to access the webapp from browser -->
+                                    <asWebapp>true</asWebapp>
+                                    <contextPath>/alfresco</contextPath>
+                                    <contextFile>${project.build.directory}/contexts/context-repo.xml</contextFile>
+                                </webapp>
+                            </webapps>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+</project>
